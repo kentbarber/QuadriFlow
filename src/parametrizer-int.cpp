@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <vector>
 #include "optimizer.hpp"
+#include <random>
 
 void Parametrizer::BuildEdgeInfo() {
     auto& F = hierarchy.mF;
@@ -255,9 +256,17 @@ void Parametrizer::BuildIntegerConstraints() {
         }
 
         // uniformly random manually modify variables so that the network has full flow.
-        for (int i = 0; i < 2; ++i)
-            for (auto& modified_var : modified_variables[i])
-                std::random_shuffle(modified_var.begin(), modified_var.end());
+        for (int i = 0; i < 2; ++i) {
+            for (auto& modified_var : modified_variables[i]) {
+				// https://meetingcpp.com/blog/items/stdrandom_shuffle-is-deprecated.html
+				std::random_device rng;
+                std::mt19937 urng(rng());
+				std::shuffle(modified_var.begin(), modified_var.end(), urng);
+
+				// Deprecated in C++14. Removed in C++17
+                //std::random_shuffle(modified_var.begin(), modified_var.end());
+            }
+        }
 
         for (int j = 0; j < total_flows.size(); ++j) {
             for (int ii = 0; ii < 2; ++ii) {
@@ -396,8 +405,16 @@ void Parametrizer::BuildIntegerConstraints() {
 
     // uniformly random manually modify variables so that the network has full flow.
     for (int j = 0; j < 2; ++j) {
-        for (auto& modified_var : modified_variables[j])
-            std::random_shuffle(modified_var.begin(), modified_var.end());
+        for (auto& modified_var : modified_variables[j]) {
+
+            // https://meetingcpp.com/blog/items/stdrandom_shuffle-is-deprecated.html
+            std::random_device rng;
+            std::mt19937 urng(rng());
+            std::shuffle(modified_var.begin(), modified_var.end(), urng);
+
+			// Deprecated in C++14. Removed in C++17            
+			//std::random_shuffle(modified_var.begin(), modified_var.end());
+		}
     }
     for (int j = 0; j < total_flows.size(); ++j) {
         for (int ii = 0; ii < 2; ++ii) {
