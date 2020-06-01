@@ -13,6 +13,8 @@
 #include "flow.hpp"
 #include "parametrizer.hpp"
 
+namespace qflow {
+
 #ifdef WITH_CUDA
 #    include <cuda_runtime.h>
 #endif
@@ -40,6 +42,8 @@ void Optimizer::optimize_orientations(Hierarchy& mRes) {
     for (int level = mRes.mN.size() - 1; level >= 0; --level) {
         AdjacentMatrix& adj = mRes.mAdj[level];
         const MatrixXd& N = mRes.mN[level];
+        const MatrixXd& CQ = mRes.mCQ[level];
+        const VectorXd& CQw = mRes.mCQw[level];
         MatrixXd& Q = mRes.mQ[level];
         auto& phases = mRes.mPhases[level];
         for (int iter = 0; iter < levelIterations; ++iter) {
@@ -67,6 +71,20 @@ void Optimizer::optimize_orientations(Hierarchy& mRes) {
                         double norm = sum.norm();
                         if (norm > RCPOVERFLOW) sum /= norm;
                     }
+
+                    if (CQw.size() > 0) {
+                        float cw = CQw[i];
+                        if (cw != 0) {
+                            std::pair<Vector3d, Vector3d> value =
+                                compat_orientation_extrinsic_4(sum, n_i, CQ.col(i), n_i);
+                            sum = value.first * (1 - cw) + value.second * cw;
+                            sum -= n_i * n_i.dot(sum);
+
+                            float norm = sum.norm();
+                            if (norm > RCPOVERFLOW) sum /= norm;
+                        }
+                    }
+
                     if (weight_sum > 0) {
                         Q.col(i) = sum;
                     }
@@ -258,6 +276,9 @@ void Optimizer::optimize_positions(Hierarchy& mRes, int with_scale) {
         for (int iter = 0; iter < levelIterations; ++iter) {
             AdjacentMatrix& adj = mRes.mAdj[level];
             const MatrixXd &N = mRes.mN[level], &Q = mRes.mQ[level], &V = mRes.mV[level];
+            const MatrixXd& CQ = mRes.mCQ[level];
+            const MatrixXd& CO = mRes.mCO[level];
+            const VectorXd& COw = mRes.mCOw[level];
             MatrixXd& O = mRes.mO[level];
             MatrixXd& S = mRes.mS[level];
             auto& phases = mRes.mPhases[level];
@@ -309,6 +330,17 @@ void Optimizer::optimize_positions(Hierarchy& mRes, int with_scale) {
                         weight_sum += weight;
                         if (weight_sum > RCPOVERFLOW) sum /= weight_sum;
                         sum -= n_i.dot(sum - v_i) * n_i;
+                    }
+
+                    if (COw.size() > 0) {
+                        float cw = COw[i];
+                        if (cw != 0) {
+                            Vector3d co = CO.col(i), cq = CQ.col(i);
+                            Vector3d d = co - sum;
+                            d -= cq.dot(d) * cq;
+                            sum += cw * d;
+                            sum -= n_i.dot(sum - v_i) * n_i;
+                        }
                     }
 
                     if (weight_sum > 0) {
@@ -540,12 +572,12 @@ void Optimizer::optimize_positions_dynamic(
         }
         std::vector<double> b(O_compact.size() * 2);
         std::vector<double> x(O_compact.size() * 2);
-#ifdef WITH_OMP
-#pragma omp parallel for
-#endif
         std::vector<Vector3d> Q_compact(O_compact.size());
         std::vector<Vector3d> N_compact(O_compact.size());
         std::vector<Vector3d> V_compact(O_compact.size());
+#ifdef WITH_OMP
+#pragma omp parallel for
+#endif
         for (int i = 0; i < O_compact.size(); ++i) {
             Q_compact[i] = Q.col(Vind[i]);
             N_compact[i] = N.col(Vind[i]);
@@ -839,6 +871,9 @@ void Optimizer::optimize_positions_sharp(
             }
 
             for (int i = 0; i < q.size(); ++i) {
+                if (sharp_to_original_indices[q[i]].size() == 0) {
+                  continue;
+                }
                 o[i] = O.col(sharp_to_original_indices[q[i]][0]);
                 Vector3d qx = Q.col(sharp_to_original_indices[q[i]][0]);
                 Vector3d qy = Vector3d(N.col(sharp_to_original_indices[q[i]][0])).cross(qx);
@@ -1190,6 +1225,8 @@ void Optimizer::optimize_integer_constraints(Hierarchy& mRes, std::map<int, int>
         auto& FQ = mRes.mFQ[level];
         auto& F2E = mRes.mF2E[level];
         auto& E2F = mRes.mE2F[level];
+
+        int iter = 0;
         while (!fullFlow) {
             std::vector<Vector4i> edge_to_constraints(E2F.size() * 2, Vector4i(-1, 0, -1, 0));
             std::vector<int> initial(F2E.size() * 2, 0);
@@ -1290,6 +1327,11 @@ void Optimizer::optimize_integer_constraints(Hierarchy& mRes, std::map<int, int>
             if (flow_count == supply) fullFlow = true;
             if (level != 0 || fullFlow) break;
             edge_capacity += 1;
+            iter++;
+            if (iter == 10) {
+              /* Probably won't converge. */
+              break;
+            }
             lprintf("Not full flow, edge_capacity += 1\n");
         }
 
@@ -1373,3 +1415,5 @@ void Optimizer::optimize_positions_cuda(Hierarchy& mRes) {
 }
 
 #endif
+
+} // namespace qflow
