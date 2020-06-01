@@ -42,7 +42,7 @@ void serial_destroy( RandomAccessIterator zs, RandomAccessIterator ze ) {
     typedef typename std::iterator_traits<RandomAccessIterator>::value_type T;
     while( zs!=ze ) {
         --ze;
-        (*ze).~T();
+        static_cast<void>((*ze).~T());
     }
 }
 
